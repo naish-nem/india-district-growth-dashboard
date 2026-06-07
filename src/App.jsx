@@ -63,7 +63,7 @@ const METRICS = [
   {
     id: "ntlDensity",
     label: "NTL density",
-    unit: "radiance per pixel",
+    unit: "radiance/pixel",
     description: "Annual NTL volume divided by district pixel count.",
     timed: true,
     mode: "sequential",
@@ -72,7 +72,7 @@ const METRICS = [
   {
     id: "footprintM2",
     label: "Building footprint",
-    unit: "m2",
+    unit: "m^2",
     description: "Annual built footprint from Google Open Buildings.",
     timed: true,
     mode: "sequential",
@@ -81,7 +81,7 @@ const METRICS = [
   {
     id: "volumeM3",
     label: "Building volume",
-    unit: "m3",
+    unit: "m^3",
     description: "Annual built volume. Treat height-driven changes cautiously.",
     timed: true,
     mode: "sequential",
@@ -152,9 +152,12 @@ const LAYERS = [
     shortLabel: "Volume",
     metricId: "volumeM3",
     years: BUILDING_YEARS,
-    description: "Column base follows building footprint. Height follows mean modeled height, so cylinder mass represents building volume.",
-    baseLabel: "Footprint",
-    heightLabel: "Mean height",
+    description: "Footprint sets the cylinder base; modeled mean height sets the column height. The 3D mass is the visual proxy for building volume.",
+    topSummary: "Base = building footprint (m^2); height = mean modeled height (m); cylinder mass represents building volume (m^3).",
+    baseLabel: "Footprint area",
+    baseUnit: "m^2",
+    heightLabel: "Mean modeled height",
+    heightUnit: "m",
   },
   {
     id: "buildingFootprint",
@@ -162,9 +165,12 @@ const LAYERS = [
     shortLabel: "Footprint",
     metricId: "footprintM2",
     years: BUILDING_YEARS,
-    description: "Columns use a fixed base. Height carries the district building footprint.",
-    baseLabel: "Fixed",
-    heightLabel: "Footprint",
+    description: "Every district uses the same base. Height carries building footprint so base size does not distort the comparison.",
+    topSummary: "Base = fixed for every district; height = building footprint (m^2). This layer compares footprint through height only.",
+    baseLabel: "Fixed district marker",
+    baseUnit: "same radius",
+    heightLabel: "Footprint area",
+    heightUnit: "m^2",
   },
   {
     id: "ntlVolume",
@@ -173,8 +179,11 @@ const LAYERS = [
     metricId: "ntlSum",
     years: NTL_YEARS,
     description: "District spikes show annual nighttime-light volume.",
+    topSummary: "Cone height represents annual NTL volume; base width uses NTL density for spatial emphasis.",
     baseLabel: "NTL density",
+    baseUnit: "radiance/pixel",
     heightLabel: "NTL volume",
+    heightUnit: "radiance sum",
   },
   {
     id: "ntlDensity",
@@ -183,8 +192,11 @@ const LAYERS = [
     metricId: "ntlDensity",
     years: NTL_YEARS,
     description: "District spikes show nighttime-light intensity per lit pixel.",
+    topSummary: "Cone height represents NTL density; base width uses NTL volume for spatial emphasis.",
     baseLabel: "NTL volume",
+    baseUnit: "radiance sum",
     heightLabel: "NTL density",
+    heightUnit: "radiance/pixel",
   },
 ];
 
@@ -391,14 +403,14 @@ export default function App() {
           <div className="eyebrow">District panel atlas</div>
           <h1>India district volume surfaces</h1>
           <p>
-            Linked 3D map and graphs for built form and nighttime-light activity.
+            {activeLayer.topSummary}
           </p>
         </div>
         <div className="header-grid">
           <MetricTile value={data.metrics.records.length.toLocaleString("en-IN")} label="districts" />
           <MetricTile value={year} label="active year" />
-          <MetricTile value={activeLayer.baseLabel} label="column base" />
-          <MetricTile value={activeLayer.heightLabel} label="column height" />
+          <MetricTile value={activeLayer.baseLabel} label="base encodes" detail={activeLayer.baseUnit} />
+          <MetricTile value={activeLayer.heightLabel} label="height encodes" detail={activeLayer.heightUnit} />
         </div>
       </header>
 
@@ -536,11 +548,12 @@ export default function App() {
   );
 }
 
-function MetricTile({ value, label }) {
+function MetricTile({ value, label, detail }) {
   return (
     <div className="metric-tile">
       <strong>{value}</strong>
       <span>{label}</span>
+      {detail ? <small>{detail}</small> : null}
     </div>
   );
 }
@@ -1009,7 +1022,7 @@ function DistrictDetail({ layer, metric, record, year }) {
       ) : (
         <>
           <div className="detail-value">
-            <span>{metric.label}</span>
+            <span>{metric.unit ? `${metric.label} (${metric.unit})` : metric.label}</span>
             <strong>{metric.formatter(activeValue)}</strong>
           </div>
           {lineData.length > 0 && <Sparkline data={lineData} />}

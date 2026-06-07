@@ -119,7 +119,7 @@ p {
 }
 
 .metric-tile {
-  min-height: 56px;
+  min-height: 68px;
   padding: 12px 14px;
   background: var(--panel);
   backdrop-filter: blur(8px);
@@ -127,18 +127,28 @@ p {
 
 .metric-tile strong {
   display: block;
-  margin-bottom: 2px;
-  font-size: 20px;
-  line-height: 1;
+  margin-bottom: 4px;
+  font-size: 19px;
+  line-height: 1.1;
   color: #ffffff;
 }
 
 .metric-tile span {
+  display: block;
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.metric-tile small {
+  display: block;
+  margin-top: 4px;
+  color: #c4cad3;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .workspace {
