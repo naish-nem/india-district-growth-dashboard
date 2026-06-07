@@ -17,6 +17,12 @@ const MAP_HEIGHT = 650;
 const BUILT_FORM_YEAR = "2023";
 const NTL_YEARS = Array.from({ length: 12 }, (_, index) => String(2014 + index));
 const BUILDING_YEARS = Array.from({ length: 8 }, (_, index) => String(2016 + index));
+const HIGHLIGHT_OPTIONS = [
+  { value: 0, label: "Off" },
+  { value: 10, label: "Top 10" },
+  { value: 15, label: "Top 15" },
+  { value: 25, label: "Top 25" },
+];
 
 const PALETTE = {
   red: "#f87171",
@@ -332,6 +338,7 @@ export default function App() {
   const [year, setYear] = useState(BUILT_FORM_YEAR);
   const [selectedId, setSelectedId] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
+  const [highlightLimit, setHighlightLimit] = useState(0);
 
   const activeLayer = useMemo(
     () => LAYERS.find((layer) => layer.id === layerId) ?? LAYERS[0],
@@ -374,6 +381,15 @@ export default function App() {
       .filter((item) => item.value != null && Number.isFinite(item.value))
       .sort((a, b) => b.value - a.value);
   }, [activeMetric, data, year]);
+
+  const highlightedRecords = useMemo(() => (
+    highlightLimit > 0 ? rankedRecords.slice(0, highlightLimit).map((item) => item.record) : []
+  ), [highlightLimit, rankedRecords]);
+
+  const highlightedIds = useMemo(
+    () => new Set(highlightedRecords.map((record) => record.id)),
+    [highlightedRecords],
+  );
 
   const handleLayerChange = useCallback((nextLayerId) => {
     const nextLayer = LAYERS.find((layer) => layer.id === nextLayerId);
@@ -471,15 +487,42 @@ export default function App() {
             </button>
           </div>
 
+          <div className="control-block">
+            <h3>Highlight ranked districts</h3>
+            <div className="highlight-options" role="group" aria-label="Highlight ranked districts">
+              {HIGHLIGHT_OPTIONS.map((option) => (
+                <button
+                  className={highlightLimit === option.value ? "active" : ""}
+                  key={option.value}
+                  type="button"
+                  onClick={() => setHighlightLimit(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="highlight-summary">
+              {highlightLimit > 0
+                ? `Labeling the ${highlightedRecords.length} highest ${activeMetric.label.toLowerCase()} districts for ${year}.`
+                : "Single district focus only."}
+            </p>
+          </div>
+
           <div className="control-note">
             {activeLayer.description} Years only appear when data exists for the active layer.
           </div>
         </aside>
 
         <section className="map-stage">
-          <BuiltFormHeader layer={activeLayer} metric={activeMetric} values={metricValues} year={year} />
+          <BuiltFormHeader
+            highlightLimit={highlightLimit}
+            layer={activeLayer}
+            metric={activeMetric}
+            year={year}
+          />
           <BuiltFormScene
             districts={data.districts}
+            highlightedIds={highlightedIds}
             hoveredId={hoveredId}
             layer={activeLayer}
             metric={activeMetric}
@@ -508,6 +551,7 @@ export default function App() {
 
       <section className="analysis-grid">
         <ScatterPanel
+          highlightedIds={highlightedIds}
           hoveredId={hoveredId}
           records={data.metrics.records}
           selectedId={selectedId}
@@ -515,6 +559,7 @@ export default function App() {
           setSelectedId={setSelectedId}
         />
         <FootprintVolumePanel
+          highlightedIds={highlightedIds}
           hoveredId={hoveredId}
           records={data.metrics.records}
           selectedId={selectedId}
@@ -522,6 +567,7 @@ export default function App() {
           setSelectedId={setSelectedId}
         />
         <NtlDensityVolumePanel
+          highlightedIds={highlightedIds}
           hoveredId={hoveredId}
           records={data.metrics.records}
           selectedId={selectedId}
@@ -558,14 +604,16 @@ function MetricTile({ value, label, detail }) {
   );
 }
 
-function BuiltFormHeader({ layer, metric, values, year }) {
+function BuiltFormHeader({ highlightLimit, layer, metric, year }) {
   return (
     <div className="map-header">
       <div>
         <h2>{layer.label}</h2>
-        <p>{year} - {metric.description}</p>
+        <p>
+          {year} - {metric.description}
+          {highlightLimit > 0 ? ` Top ${highlightLimit} districts are labeled across the map and graphs.` : ""}
+        </p>
       </div>
-      <Legend metric={metric} values={values} />
     </div>
   );
 }
@@ -693,8 +741,45 @@ function layerValues(record, layer, year) {
   };
 }
 
+function createLabelSprite(text, color) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  context.font = "600 24px IBM Plex Sans, sans-serif";
+  const width = Math.ceil(context.measureText(text).width + 30);
+  canvas.width = width;
+  canvas.height = 42;
+  context.font = "600 24px IBM Plex Sans, sans-serif";
+  context.fillStyle = "rgba(7, 8, 12, 0.76)";
+  context.strokeStyle = "rgba(255, 255, 255, 0.14)";
+  context.lineWidth = 1;
+  context.beginPath();
+  if (typeof context.roundRect === "function") {
+    context.roundRect(0.5, 0.5, width - 1, 41, 8);
+  } else {
+    context.rect(0.5, 0.5, width - 1, 41);
+  }
+  context.fill();
+  context.stroke();
+  context.fillStyle = color;
+  context.textBaseline = "middle";
+  context.fillText(text, 15, 22);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(width * 0.24, 10, 1);
+  return sprite;
+}
+
 function BuiltFormScene({
   districts,
+  highlightedIds,
   hoveredId,
   layer,
   metric,
@@ -804,7 +889,11 @@ function BuiltFormScene({
       const radius = layer.id === "buildingFootprint" ? 7 : baseScale(Math.sqrt(row.baseValue));
       const height = heightScale(Math.sqrt(row.heightValue));
       const isSelected = row.id === focusId;
-      const dimmed = Boolean(focusId) && !isSelected;
+      const isHighlighted = highlightedIds.has(row.id);
+      const hasHighlightSet = highlightedIds.size > 0;
+      const dimmed = hasHighlightSet
+        ? !isSelected && !isHighlighted
+        : Boolean(focusId) && !isSelected;
       const color = new THREE.Color(colorFor(metric, row.colorValue, activeValues));
       const geometry = new THREE.CylinderGeometry(
         layer.id.startsWith("ntl") ? radius * 0.26 : radius * 0.76,
@@ -814,10 +903,10 @@ function BuiltFormScene({
         1,
       );
       const material = new THREE.MeshStandardMaterial({
-        color: isSelected ? 0xfbbf24 : color,
-        emissive: isSelected ? 0x4d3410 : 0x07131d,
-        emissiveIntensity: isSelected ? 0.5 : 0.16,
-        opacity: dimmed ? 0.2 : 0.9,
+        color: isSelected ? 0xfbbf24 : isHighlighted ? 0x38bdf8 : color,
+        emissive: isSelected ? 0x4d3410 : isHighlighted ? 0x123347 : 0x07131d,
+        emissiveIntensity: isSelected ? 0.5 : isHighlighted ? 0.38 : 0.16,
+        opacity: dimmed ? 0.14 : isHighlighted ? 0.96 : 0.9,
         transparent: true,
         depthWrite: !dimmed,
         roughness: 0.48,
@@ -829,29 +918,35 @@ function BuiltFormScene({
       columnGroup.add(mesh);
       pickTargets.push(mesh);
 
-      if (isSelected) {
+      if (isSelected || isHighlighted) {
         const ringGeometry = new THREE.TorusGeometry(radius * 1.6, 1.2, 8, 56);
         const ringMaterial = new THREE.MeshBasicMaterial({
-          color: 0xfbbf24,
+          color: isSelected ? 0xfbbf24 : 0x38bdf8,
           transparent: true,
-          opacity: 0.92,
+          opacity: isSelected ? 0.92 : 0.55,
         });
         const ring = new THREE.Mesh(ringGeometry, ringMaterial);
         ring.rotation.x = Math.PI / 2;
         ring.position.set(row.x, 1.4, row.z);
         columnGroup.add(ring);
 
-        const stemGeometry = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(row.x, 1, row.z),
-          new THREE.Vector3(row.x, height + 18, row.z),
-        ]);
-        const stemMaterial = new THREE.LineBasicMaterial({
-          color: 0xfbbf24,
-          transparent: true,
-          opacity: 0.86,
-        });
-        const stem = new THREE.Line(stemGeometry, stemMaterial);
-        columnGroup.add(stem);
+        if (isSelected) {
+          const stemGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(row.x, 1, row.z),
+            new THREE.Vector3(row.x, height + 18, row.z),
+          ]);
+          const stemMaterial = new THREE.LineBasicMaterial({
+            color: 0xfbbf24,
+            transparent: true,
+            opacity: 0.86,
+          });
+          const stem = new THREE.Line(stemGeometry, stemMaterial);
+          columnGroup.add(stem);
+        }
+
+        const label = createLabelSprite(row.name, isSelected ? "#fbbf24" : "#bae6fd");
+        label.position.set(row.x, height + (isSelected ? 30 : 18), row.z);
+        columnGroup.add(label);
       }
     }
     scene.add(columnGroup);
@@ -914,8 +1009,12 @@ function BuiltFormScene({
         if (object.geometry) object.geometry.dispose();
         if (object.material) {
           if (Array.isArray(object.material)) {
-            object.material.forEach((material) => material.dispose());
+            object.material.forEach((material) => {
+              if (material.map) material.map.dispose();
+              material.dispose();
+            });
           } else {
+            if (object.material.map) object.material.map.dispose();
             object.material.dispose();
           }
         }
@@ -923,7 +1022,7 @@ function BuiltFormScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [focusId, layer, metric, sceneData, setSelectedId, values]);
+  }, [focusId, highlightedIds, layer, metric, sceneData, setSelectedId, values]);
 
   return (
     <div className="built-scene">
@@ -1152,7 +1251,26 @@ function MiniMap({ districts, metric, recordsById, title, year }) {
   );
 }
 
-function ScatterPanel({ hoveredId, records, selectedId, setHoveredId, setSelectedId }) {
+function scatterPointClass(id, focusId, highlightedIds) {
+  if (id === focusId) return "scatter-point focused";
+  if (highlightedIds.has(id)) return "scatter-point highlighted";
+  if (highlightedIds.size > 0 || focusId) return "scatter-point dimmed";
+  return "scatter-point";
+}
+
+function scatterLabelClass(id, focusId, highlightedIds) {
+  if (id === focusId) return "scatter-label focused";
+  if (highlightedIds.has(id)) return "scatter-label highlighted";
+  return "scatter-label";
+}
+
+function shouldLabelPoint(record, labelSet, focusId, highlightedIds) {
+  if (record.id === focusId) return true;
+  if (highlightedIds.has(record.id)) return true;
+  return highlightedIds.size === 0 && labelSet.has(record.name);
+}
+
+function ScatterPanel({ highlightedIds, hoveredId, records, selectedId, setHoveredId, setSelectedId }) {
   const points = useMemo(
     () => records.filter((record) => (
       record.name !== "Lakshadweep"
@@ -1204,11 +1322,9 @@ function ScatterPanel({ hoveredId, records, selectedId, setHoveredId, setSelecte
         <line className="axis-zero" x1={xScale(0)} x2={xScale(0)} y1="24" y2="300" />
         <line className="axis-zero" x1="52" x2="520" y1={yScale(0)} y2={yScale(0)} />
         {points.map((record) => {
-          const isFocused = record.id === focusId;
-          const isDimmed = Boolean(focusId) && !isFocused;
           return (
           <circle
-            className={isFocused ? "scatter-point focused" : isDimmed ? "scatter-point dimmed" : "scatter-point"}
+            className={scatterPointClass(record.id, focusId, highlightedIds)}
             cx={xScale(record.metrics.footprintGrowth)}
             cy={yScale(record.metrics.ntlRecent)}
             fill={colorFor(METRICS[4], record.metrics.agglomerationSpeed, [])}
@@ -1231,9 +1347,9 @@ function ScatterPanel({ hoveredId, records, selectedId, setHoveredId, setSelecte
           </circle>
           );
         })}
-        {points.filter((record) => labelSet.has(record.name) || record.id === focusId).map((record) => (
+        {points.filter((record) => shouldLabelPoint(record, labelSet, focusId, highlightedIds)).map((record) => (
           <text
-            className={record.id === focusId ? "scatter-label focused" : "scatter-label"}
+            className={scatterLabelClass(record.id, focusId, highlightedIds)}
             key={`label-${record.id}`}
             x={xScale(record.metrics.footprintGrowth) + 7}
             y={yScale(record.metrics.ntlRecent) - 5}
@@ -1248,7 +1364,7 @@ function ScatterPanel({ hoveredId, records, selectedId, setHoveredId, setSelecte
   );
 }
 
-function FootprintVolumePanel({ hoveredId, records, selectedId, setHoveredId, setSelectedId }) {
+function FootprintVolumePanel({ highlightedIds, hoveredId, records, selectedId, setHoveredId, setSelectedId }) {
   const points = useMemo(
     () => records
       .map((record) => ({
@@ -1303,11 +1419,9 @@ function FootprintVolumePanel({ hoveredId, records, selectedId, setHoveredId, se
           />
         ))}
         {points.map((record) => {
-          const isFocused = record.id === focusId;
-          const isDimmed = Boolean(focusId) && !isFocused;
           return (
           <circle
-            className={isFocused ? "scatter-point focused" : isDimmed ? "scatter-point dimmed" : "scatter-point"}
+            className={scatterPointClass(record.id, focusId, highlightedIds)}
             cx={xScale(Math.sqrt(record.footprint))}
             cy={yScale(Math.sqrt(record.volume))}
             fill="#fbbf24"
@@ -1331,9 +1445,9 @@ function FootprintVolumePanel({ hoveredId, records, selectedId, setHoveredId, se
           </circle>
           );
         })}
-        {points.filter((record) => labelSet.has(record.name) || record.id === focusId).map((record) => (
+        {points.filter((record) => shouldLabelPoint(record, labelSet, focusId, highlightedIds)).map((record) => (
           <text
-            className={record.id === focusId ? "scatter-label focused" : "scatter-label"}
+            className={scatterLabelClass(record.id, focusId, highlightedIds)}
             key={`fv-label-${record.id}`}
             x={xScale(Math.sqrt(record.footprint)) + 7}
             y={yScale(Math.sqrt(record.volume)) - 5}
@@ -1348,7 +1462,7 @@ function FootprintVolumePanel({ hoveredId, records, selectedId, setHoveredId, se
   );
 }
 
-function NtlDensityVolumePanel({ hoveredId, records, selectedId, setHoveredId, setSelectedId, year }) {
+function NtlDensityVolumePanel({ highlightedIds, hoveredId, records, selectedId, setHoveredId, setSelectedId, year }) {
   const points = useMemo(
     () => records
       .map((record) => ({
@@ -1403,11 +1517,9 @@ function NtlDensityVolumePanel({ hoveredId, records, selectedId, setHoveredId, s
           />
         ))}
         {points.map((record) => {
-          const isFocused = record.id === focusId;
-          const isDimmed = Boolean(focusId) && !isFocused;
           return (
             <circle
-              className={isFocused ? "scatter-point focused" : isDimmed ? "scatter-point dimmed" : "scatter-point"}
+              className={scatterPointClass(record.id, focusId, highlightedIds)}
               cx={xScale(Math.sqrt(record.density))}
               cy={yScale(Math.sqrt(record.volume))}
               fill="#60a5fa"
@@ -1431,9 +1543,9 @@ function NtlDensityVolumePanel({ hoveredId, records, selectedId, setHoveredId, s
             </circle>
           );
         })}
-        {points.filter((record) => labelSet.has(record.name) || record.id === focusId).map((record) => (
+        {points.filter((record) => shouldLabelPoint(record, labelSet, focusId, highlightedIds)).map((record) => (
           <text
-            className={record.id === focusId ? "scatter-label focused" : "scatter-label"}
+            className={scatterLabelClass(record.id, focusId, highlightedIds)}
             key={`ntl-label-${record.id}`}
             x={xScale(Math.sqrt(record.density)) + 7}
             y={yScale(Math.sqrt(record.volume)) - 5}

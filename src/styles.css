@@ -184,6 +184,7 @@ p {
 
 .metric-list button,
 .year-buttons button,
+.highlight-options button,
 .clear-button,
 .time-actions button {
   border: 1px solid var(--panel-border);
@@ -202,6 +203,7 @@ p {
 
 .metric-list button.active,
 .year-buttons button.active,
+.highlight-options button.active,
 .time-actions button:hover:not(:disabled) {
   background: var(--accent);
   color: #090a0f;
@@ -251,6 +253,27 @@ p {
   opacity: 0.28;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.015);
+}
+
+.highlight-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.highlight-options button {
+  min-height: 34px;
+  padding: 7px 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.highlight-summary {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .focus-readout {
@@ -344,10 +367,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .map-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
-  gap: 12px;
-  align-items: start;
+  display: block;
   margin-bottom: 12px;
   padding: 0 2px;
 }
@@ -719,9 +739,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
   paint-order: stroke;
 }
 
+.scatter-point.highlighted {
+  opacity: 1;
+  stroke: #bae6fd;
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
 .scatter-label.focused {
   fill: var(--accent);
   font-size: 12px;
+  font-weight: 700;
+}
+
+.scatter-label.highlighted {
+  fill: #bae6fd;
+  font-size: 11px;
   font-weight: 700;
 }
 
